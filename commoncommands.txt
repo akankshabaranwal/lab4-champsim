@@ -1,0 +1,2 @@
+./build_champsim.sh next_line
+./run_champsim.sh bin/perceptron-no-next_line-no-ship-1core 100 500 traces/436.cactusADM-1804B.champsimtrace.xz 
