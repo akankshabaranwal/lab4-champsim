@@ -34,6 +34,30 @@
 	
 	int IT[NUM_ENTRIES];
 
+	class INDEX_TABLE {
+	  public:
+	    // the IP we're tracking
+	    uint64_t ip;
+
+	    // the last address accessed by this IP
+	    uint64_t *ghb_head_ptr;
+
+	    // the stride between the last two addresses accessed by this IP
+	    int64_t last_stride;
+
+	    // use LRU to evict old IP trackers
+	    uint32_t lru;
+
+	    INDEX_TABLE () {
+	        ip = 0;
+	        last_cl_addr = 0;
+	        last_stride = 0;
+	        lru = 0;
+	    };
+	};
+	//How do I evict from IT?? 
+	INDEX_TABLE IT[NUM_ENTRIES];
+
 	int insertToGHB(int val) {
 	   if ((front == 0 && rear == n-1) || (front == rear+1)) {
 	      // Return 0 indicating that insertion to queue failed. So something needs to be deleted.
@@ -107,15 +131,17 @@
 
 		/*
 		Pseudo code starts:
-		if(IT[addr] has some valid value)
+		if(IT[addr] exists)
 			{
 				prev_GHB_ptr = IT[addr];
-				new_GHB_ptr = insert_to_GHB(addr, prev_GHB_ptr); //Insert to GHB should return the
+				new_GHB_ptr = insert_to_GHB(addr, prev_GHB_ptr); //Insert to GHB should return the address of the pointer.
 				//GHB should probably be an array of a 2D struct with pointers.
 				IT[addr] = new_GHB_ptr;
+				// Using the pointers for GHB we will calculate stride and then decide whether to prefetch or not.
 			}
 		*/
 		
+
 		// Code below is for next line prefetcher. 
 
 	    uint64_t pf_addr = ((addr>>LOG2_BLOCK_SIZE)+1) << LOG2_BLOCK_SIZE; // this is calculating the address of the next line which needs to be fetched. Since this is a next line prefetcher. And then we add this address by calling prefetch_line. 
