@@ -1,17 +1,30 @@
 	#include "cache.h"
 
-
 	#define PREFETCH_DEGREE 4
 	#define PREFETCH_LOOKAHEAD 4
 	#define NUM_ENTRIES 256
 
 	int GHB[NUM_ENTRIES];
-	int front = -1, rear = -1, n=256;
 	
-	int insertToGHB(int val) {
+	class GLOBAL_HISTORY_BUFFER {
+  	public:
+    uint64_t next_ptr; // Index pointer to the previously accessed address by the same IP    
+    uint64_t addr; // The last address accessed by this IP
+
+    GLOBAL_HISTORY_BUFFER () {
+        next_ptr = -1;
+  		addr = 0;
+        lru = 0;
+    	};
+	};
+
+	GLOBAL_HISTORY_BUFFER GHB[NUM_ENTRIES];
+	int front = -1, rear = -1, n=NUM_ENTRIES;
+
+	int insertToGHB(int next_ptr, int64_t addr) {
 	   if ((front == 0 && rear == n-1) || (front == rear+1)) {
-	      // Return 0 indicating that insertion to queue failed. So something needs to be deleted.
-	      return 0;
+	      // Return -1 indicating that insertion to queue failed. So something needs to be deleted.
+	      return -1;
 	   }
 
 	   if (front == -1) {
@@ -25,9 +38,11 @@
 	      rear = rear + 1;
 	   }
 
-	   GHB[rear] = val ;
-	   return 1; //Indicating successful insertion
+	   GHB[rear].addr = addr ;
+	   GHB[rear].next_ptr = next_ptr;
+	   return rear; //Returning the index where address was successfully inserted
 	}
+
 
 	int deleteFromGHB() {
 	   if (front == -1) {
@@ -35,9 +50,6 @@
 	      return -1;
 	   }
 	   
-	   // cout<<"Element deleted from queue is : "<<cqueue[front]<<endl;
-	   // See how this could be useful??
-
 	   if (front == rear) {
 	      front = -1;
 	      rear = -1;
@@ -50,30 +62,7 @@
 	   return 1; //Indicating that deletion from queue is successfull
 	}
 
-
-	class INDEX_TABLE {
-	  public:
-	    // the IP we're tracking
-	    uint64_t ip;
-
-	    // the last address accessed by this IP
-	    uint64_t *ghb_head_ptr;
-
-	    // the stride between the last two addresses accessed by this IP
-	    int64_t last_stride;
-
-	    // use LRU to evict old IP trackers
-	    uint32_t lru;
-
-	    INDEX_TABLE () {
-	        ip = 0;
-	        last_cl_addr = 0;
-	        last_stride = 0;
-	        lru = 0;
-	    };
-	};
-
-	INDEX_TABLE IT[NUM_ENTRIES];
+	int INDEX_TABLE[NUM_ENTRIES];
 
 	void CACHE::l2c_prefetcher_initialize() 
 	{
@@ -81,53 +70,80 @@
 	    // Initialize all IT as -1.
 	    // Initialize all GHB pointers as -1
 	    // Basically initialize all invalid pointers as -1
+
+	    for(int i=0;i <NUM_ENTRIES; i++)
+	    {
+	    	INDEX_TABLE[i] = -1;
+	    }
+
+	    for(int i=0;i <NUM_ENTRIES; i++)
+	    {
+	    	GHB[i].addr = addr;
+	    	GHB[i].next_ptr = -1;
+	    }
+
 	}
 
 	uint32_t CACHE::l2c_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit, uint8_t type, uint32_t metadata_in)
 	{
-
 		int64_t pc_index;
 		pc_index = ip & 0x00000000000000FF; //Use the least significant 8 bits to compute the PC address.
 
-		GHB_ptr_0 = IT[pc_index];
-
-		// Using the pointers for GHB we will calculate stride and then decide whether to prefetch or not.
-		// Get the last 3 addresses accessed by this PC using the GHB pointer values
-		addr1 = GHB[GHB_ptr_0].address;
-		GHB_ptr_1 = GHB[GHB_ptr_0].ptr;
+		GHB_ptr_0 = INDEX_TABLE[pc_index];
 		
-		addr2 = GHB[GHB_ptr_1].address;
-		GHB_ptr_2 = GHB[GHB_ptr_1].ptr;
+		int64_t stride1 = 0;
+		int64_t stride2 = 0;
 
-		addr3 = GHB[GHB_ptr_2].address;
-		GHB_ptr_2 = GHB[GHB_ptr_2].ptr;
+		if(GHB_ptr_0 != -1){
+			addr1 = GHB[GHB_ptr_0].address; // Get the last 3 addresses accessed by this PC using the GHB pointer values
+			GHB_ptr_1 = GHB[GHB_ptr_0].ptr;
+			
+			if(GHB_ptr_1 != -1){
+				addr2 = GHB[GHB_ptr_1].address;
+				GHB_ptr_2 = GHB[GHB_ptr_1].ptr;
 
-		stride1 = addr2 - addr1;
-		stride2 = addr3 - addr2;
+				if(GHB_ptr_2 ! = -1){
+					addr3 = GHB[GHB_ptr_2].address;
 
-		if(stride1 == stride2)
-		{
-			stride1 = stride1 *PREFETCH_LOOKAHEAD;
-			for(i = 0; i < PREFETCH_DEGREE; i++)
-			{
-		       uint64_t pf_address = (addr + (stride1*(i))) << LOG2_BLOCK_SIZE;
-            	// only issue a prefetch if the prefetch address is in the same 4 KB page as the current demand access address
-            	if ((pf_address >> LOG2_PAGE_SIZE) != (addr >> LOG2_PAGE_SIZE))
-                	break;
-	      		prefetch_line(ip, addr, pf_address, FILL_L2, 0);
+				    if (addr2 > addr1) // Computing difference between unsigned integers
+				        stride1 = addr2 - addr1;
+				    else {
+				        stride1 = addr1 - addr2;
+				        stride1 *= -1;
+				    }
+
+				    if (addr3 > addr2) // Computing difference between unsigned integers
+				        stride2 = addr3 - addr2;
+				    else {
+				        stride2 = addr2 - addr3;
+				        stride2 *= -1;
+				    }
+
+					if((stride1 == stride2) && (stride1!=0)){
+						stride1 = stride1 *PREFETCH_LOOKAHEAD;
+						for(i = 0; i < PREFETCH_DEGREE; i++){
+					       uint64_t pf_address = (addr + (stride1*(i))) << LOG2_BLOCK_SIZE;
+			            	// only issue a prefetch if the prefetch address is in the same 4 KB page as the current demand access address
+			            	if ((pf_address >> LOG2_PAGE_SIZE) != (addr >> LOG2_PAGE_SIZE))
+			                	break;
+				      		prefetch_line(ip, addr, pf_address, FILL_L2, 0);
+						}
+					}
+				}
 			}
 		}
 
 		// Update the Index table entries with the new GHB entry pointer
-		prev_GHB_ptr = IT[IT_index];
+		prev_GHB_ptr = INDEX_TABLE[pc_index];
 		if (GHB is full)
 			remove from GHB
 
 		new_GHB_ptr = insert_to_GHB(addr, prev_GHB_ptr);
-		IT[pc_index] = new_GHB_ptr;
+		INDEX_TABLE[pc_index] = new_GHB_ptr;
 
 	    return metadata_in;
 	}
+
 
 	uint32_t CACHE::l2c_prefetcher_cache_fill(uint64_t addr, uint32_t set, uint32_t way, uint8_t prefetch, uint64_t evicted_addr, uint32_t metadata_in)
 	{
