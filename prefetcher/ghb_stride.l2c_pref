@@ -4,7 +4,6 @@
 	#define PREFETCH_LOOKAHEAD 4
 	#define NUM_ENTRIES 256
 
-	int GHB[NUM_ENTRIES];
 	
 	class GLOBAL_HISTORY_BUFFER {
   	public:
@@ -14,7 +13,6 @@
     GLOBAL_HISTORY_BUFFER () {
         next_ptr = -1;
   		addr = 0;
-        lru = 0;
     	};
 	};
 
@@ -78,16 +76,17 @@
 
 	    for(int i=0;i <NUM_ENTRIES; i++)
 	    {
-	    	GHB[i].addr = addr;
+	    	GHB[i].addr = 0;
 	    	GHB[i].next_ptr = -1;
 	    }
-
 	}
 
 	uint32_t CACHE::l2c_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit, uint8_t type, uint32_t metadata_in)
 	{
 		int64_t pc_index;
 		pc_index = ip & 0x00000000000000FF; //Use the least significant 8 bits to compute the PC address.
+
+		int GHB_ptr_0, GHB_ptr_1, GHB_ptr_2;
 
 		GHB_ptr_0 = INDEX_TABLE[pc_index];
 		
@@ -96,15 +95,14 @@
 		uint64_t addr1, addr2, addr3;
 
 		if(GHB_ptr_0 != -1){
-			addr1 = GHB[GHB_ptr_0].address; // Get the last 3 addresses accessed by this PC using the GHB pointer values
-			GHB_ptr_1 = GHB[GHB_ptr_0].ptr;
+			addr1 = GHB[GHB_ptr_0].addr; // Get the last 3 addresses accessed by this PC using the GHB pointer values
+			GHB_ptr_1 = GHB[GHB_ptr_0].next_ptr;
 			
 			if(GHB_ptr_1 != -1){
-				addr2 = GHB[GHB_ptr_1].address;
-				GHB_ptr_2 = GHB[GHB_ptr_1].ptr;
-
-				if(GHB_ptr_2 ! = -1){
-					addr3 = GHB[GHB_ptr_2].address;
+				addr2 = GHB[GHB_ptr_1].addr;
+				GHB_ptr_2 = GHB[GHB_ptr_1].next_ptr;
+				if(GHB_ptr_2 != -1){
+					addr3 = GHB[GHB_ptr_2].addr;
 
 				    if (addr2 > addr1) // Computing difference between unsigned integers
 				        stride1 = addr2 - addr1;
@@ -122,7 +120,7 @@
 
 					if((stride1 == stride2) && (stride1!=0)){
 						stride1 = stride1 *PREFETCH_LOOKAHEAD;
-						for(i = 0; i < PREFETCH_DEGREE; i++){
+						for(int i = 0; i < PREFETCH_DEGREE; i++){
 					       uint64_t pf_address = (addr + (stride1*(i))) << LOG2_BLOCK_SIZE;
 			            	// only issue a prefetch if the prefetch address is in the same 4 KB page as the current demand access address
 			            	if ((pf_address >> LOG2_PAGE_SIZE) != (addr >> LOG2_PAGE_SIZE))
@@ -135,11 +133,11 @@
 		}
 
 		// Update the Index table entries with the new GHB entry pointer
-		prev_GHB_ptr = INDEX_TABLE[pc_index];
+		int prev_GHB_ptr = INDEX_TABLE[pc_index];
 		int new_ptr = insertToGHB(prev_GHB_ptr, addr);
 		if ( new_ptr == -1)
 			{
-				deletefromGHB();
+				deleteFromGHB();
 				new_ptr = insertToGHB(prev_GHB_ptr, addr);
 			}
 
