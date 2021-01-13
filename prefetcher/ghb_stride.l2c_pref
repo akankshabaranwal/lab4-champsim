@@ -5,6 +5,140 @@
 	#define PREFETCH_LOOKAHEAD 4
 	#define NUM_ENTRIES 256
 
+	int GHB[NUM_ENTRIES];
+	int front = -1, rear = -1, n=256;
+	
+	int insertToGHB(int val) {
+	   if ((front == 0 && rear == n-1) || (front == rear+1)) {
+	      // Return 0 indicating that insertion to queue failed. So something needs to be deleted.
+	      return 0;
+	   }
+
+	   if (front == -1) {
+	      front = 0;
+	      rear = 0;
+
+	   } else {
+	      if (rear == n - 1)
+	      rear = 0;
+	      else
+	      rear = rear + 1;
+	   }
+
+	   GHB[rear] = val ;
+	   return 1; //Indicating successful insertion
+	}
+
+	int deleteFromGHB() {
+	   if (front == -1) {
+	      //Return -1 indication that deletion from queue has failed
+	      return -1;
+	   }
+	   
+	   // cout<<"Element deleted from queue is : "<<cqueue[front]<<endl;
+	   // See how this could be useful??
+
+	   if (front == rear) {
+	      front = -1;
+	      rear = -1;
+	   } else {
+	      if (front == n - 1)
+	      front = 0;
+	      else
+	      front = front + 1;
+	   }
+	   return 1; //Indicating that deletion from queue is successfull
+	}
+
+
+	class INDEX_TABLE {
+	  public:
+	    // the IP we're tracking
+	    uint64_t ip;
+
+	    // the last address accessed by this IP
+	    uint64_t *ghb_head_ptr;
+
+	    // the stride between the last two addresses accessed by this IP
+	    int64_t last_stride;
+
+	    // use LRU to evict old IP trackers
+	    uint32_t lru;
+
+	    INDEX_TABLE () {
+	        ip = 0;
+	        last_cl_addr = 0;
+	        last_stride = 0;
+	        lru = 0;
+	    };
+	};
+
+	INDEX_TABLE IT[NUM_ENTRIES];
+
+	void CACHE::l2c_prefetcher_initialize() 
+	{
+	    cout << "CPU " << cpu << " L2C GHB stride prefetcher" << endl;
+	    // Initialize all IT as -1.
+	    // Initialize all GHB pointers as -1
+	    // Basically initialize all invalid pointers as -1
+	}
+
+	uint32_t CACHE::l2c_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit, uint8_t type, uint32_t metadata_in)
+	{
+
+		int64_t pc_index;
+		pc_index = ip & 0x00000000000000FF; //Use the least significant 8 bits to compute the PC address.
+
+		GHB_ptr_0 = IT[pc_index];
+
+		// Using the pointers for GHB we will calculate stride and then decide whether to prefetch or not.
+		// Get the last 3 addresses accessed by this PC using the GHB pointer values
+		addr1 = GHB[GHB_ptr_0].address;
+		GHB_ptr_1 = GHB[GHB_ptr_0].ptr;
+		
+		addr2 = GHB[GHB_ptr_1].address;
+		GHB_ptr_2 = GHB[GHB_ptr_1].ptr;
+
+		addr3 = GHB[GHB_ptr_2].address;
+		GHB_ptr_2 = GHB[GHB_ptr_2].ptr;
+
+		stride1 = addr2 - addr1;
+		stride2 = addr3 - addr2;
+
+		if(stride1 == stride2)
+		{
+			stride1 = stride1 *PREFETCH_LOOKAHEAD;
+			for(i = 0; i < PREFETCH_DEGREE; i++)
+			{
+		       uint64_t pf_address = (addr + (stride1*(i))) << LOG2_BLOCK_SIZE;
+            	// only issue a prefetch if the prefetch address is in the same 4 KB page as the current demand access address
+            	if ((pf_address >> LOG2_PAGE_SIZE) != (addr >> LOG2_PAGE_SIZE))
+                	break;
+	      		prefetch_line(ip, addr, pf_address, FILL_L2, 0);
+			}
+		}
+
+		// Update the Index table entries with the new GHB entry pointer
+		prev_GHB_ptr = IT[IT_index];
+		if (GHB is full)
+			remove from GHB
+
+		new_GHB_ptr = insert_to_GHB(addr, prev_GHB_ptr);
+		IT[pc_index] = new_GHB_ptr;
+
+	    return metadata_in;
+	}
+
+	uint32_t CACHE::l2c_prefetcher_cache_fill(uint64_t addr, uint32_t set, uint32_t way, uint8_t prefetch, uint64_t evicted_addr, uint32_t metadata_in)
+	{
+	  return metadata_in;
+	}
+
+	void CACHE::l2c_prefetcher_final_stats()
+	{
+	    cout << "CPU " << cpu << " L2C GHB stride prefetcher final stats" << endl;
+	}
+
 	/*
 	Index table
 	A table that is indexed by program properties, like Program Counter
@@ -29,90 +163,9 @@
 		This is same as they do in the paper.
 	*/
 
-	int GHB[NUM_ENTRIES];
-	int front = -1, rear = -1, n=256;
-	
-	int IT[NUM_ENTRIES];
-
-	class INDEX_TABLE {
-	  public:
-	    // the IP we're tracking
-	    uint64_t ip;
-
-	    // the last address accessed by this IP
-	    uint64_t *ghb_head_ptr;
-
-	    // the stride between the last two addresses accessed by this IP
-	    int64_t last_stride;
-
-	    // use LRU to evict old IP trackers
-	    uint32_t lru;
-
-	    INDEX_TABLE () {
-	        ip = 0;
-	        last_cl_addr = 0;
-	        last_stride = 0;
-	        lru = 0;
-	    };
-	};
-	//How do I evict from IT?? 
-	INDEX_TABLE IT[NUM_ENTRIES];
-
-	int insertToGHB(int val) {
-	   if ((front == 0 && rear == n-1) || (front == rear+1)) {
-	      // Return 0 indicating that insertion to queue failed. So something needs to be deleted.
-	      return 0;
-	   }
-
-	   if (front == -1) {
-	      front = 0;
-	      rear = 0;
-
-	   } else {
-	      if (rear == n - 1)
-	      rear = 0;
-	      else
-	      rear = rear + 1;
-	   }
-
-	   GHB[rear] = val ;
-	   return 1; //Indicating successful insertion
-	}
-
-
-	int deleteFromGHB() {
-	   if (front == -1) {
-	      //Return -1 indication that deletion from queue has failed
-	      return -1;
-	   }
-	   
-	   // cout<<"Element deleted from queue is : "<<cqueue[front]<<endl;
-	   // See how this could be useful??
-
-	   if (front == rear) {
-	      front = -1;
-	      rear = -1;
-	   } else {
-	      if (front == n - 1)
-	      front = 0;
-	      else
-	      front = front + 1;
-	   }
-	   return 1; //Indicating that deletion from queue is successfull
-	}
-
-
-	void CACHE::l2c_prefetcher_initialize() 
-	{
-	    cout << "CPU " << cpu << " L2C GHB stride prefetcher" << endl;
-	}
-
-	// This function is called for each L2 cache lookup operation. It is called for both L2 load and store accesses that can either hit or miss in the cache.
-	// Type and metadata_in helps in identifying the type of lookup.
-	// We want to find patters only in L2 load accessess. addr gives the cacheline aligned address and ip gives the PC of the memory access.
-	uint32_t CACHE::l2c_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit, uint8_t type, uint32_t metadata_in)
-	{
-
+		// This function is called for each L2 cache lookup operation. It is called for both L2 load and store accesses that can either hit or miss in the cache.
+		// Type and metadata_in helps in identifying the type of lookup.
+		// We want to find patters only in L2 load accessess. addr gives the cacheline aligned address and ip gives the PC of the memory access.
 		// Use ip to index into the IT. We need to use some particular bits of the ip to index properly for the 256 entries.
 		// The entries in IT contain pointers into the GHB. We first need to check if there's a hit in the index table. Only then do we access the GHB etc. 
 		// Maybe this IT would be similar to the tracker in ip_stride prefetcher.
@@ -120,47 +173,8 @@
 		// The link pointers are used to chain the GHB entries into address lists.
 		// Using PC and link pointers in the GHB entries, the algorithm retrieves the sequence of last 3 addresses by this PC that accessed the L2 cache.
 		// Stride is computed by taking the difference between two consecutive addresses in the sequence. If two strides match, the prefetcher issues request to the next n cachelines.
-
 		// Simple state machine maintains the GHB address lists and coordinates the 
-
 		// From paper:
 		// Using the PC of a load instruction as the index into the index table, the address list created is the sequence of addresses for a given PC.
 		// The load strides can be calculated by computing the differences between consecutive entries in the address list.
 		// If a constant stride is detected then we prefetch a set of addresses.
-
-
-		/*
-		Pseudo code starts:
-		if(IT[addr] exists)
-			{
-				prev_GHB_ptr = IT[addr];
-				new_GHB_ptr = insert_to_GHB(addr, prev_GHB_ptr); //Insert to GHB should return the address of the pointer.
-				//GHB should probably be an array of a 2D struct with pointers.
-				IT[addr] = new_GHB_ptr;
-				// Using the pointers for GHB we will calculate stride and then decide whether to prefetch or not.
-			}
-		*/
-		
-
-		// Code below is for next line prefetcher. 
-
-	    uint64_t pf_addr = ((addr>>LOG2_BLOCK_SIZE)+1) << LOG2_BLOCK_SIZE; // this is calculating the address of the next line which needs to be fetched. Since this is a next line prefetcher. And then we add this address by calling prefetch_line. 
-
-	    DP ( if (warmup_complete[cpu]) {
-	    cout << "[" << NAME << "] " << __func__ << hex << " base_cl: " << (addr>>LOG2_BLOCK_SIZE);
-	    cout << " pf_cl: " << (pf_addr>>LOG2_BLOCK_SIZE) << " ip: " << ip << " cache_hit: " << +cache_hit << " type: " << +type << endl; });
-
-	    prefetch_line(ip, addr, pf_addr, FILL_L2, 0);
-
-	    return metadata_in;
-	}
-
-	uint32_t CACHE::l2c_prefetcher_cache_fill(uint64_t addr, uint32_t set, uint32_t way, uint8_t prefetch, uint64_t evicted_addr, uint32_t metadata_in)
-	{
-	  return metadata_in;
-	}
-
-	void CACHE::l2c_prefetcher_final_stats()
-	{
-	    cout << "CPU " << cpu << " L2C GHB stride prefetcher final stats" << endl;
-	}
