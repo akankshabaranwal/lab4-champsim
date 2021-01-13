@@ -93,6 +93,7 @@
 		
 		int64_t stride1 = 0;
 		int64_t stride2 = 0;
+		uint64_t addr1, addr2, addr3;
 
 		if(GHB_ptr_0 != -1){
 			addr1 = GHB[GHB_ptr_0].address; // Get the last 3 addresses accessed by this PC using the GHB pointer values
@@ -135,12 +136,14 @@
 
 		// Update the Index table entries with the new GHB entry pointer
 		prev_GHB_ptr = INDEX_TABLE[pc_index];
-		if (GHB is full)
-			remove from GHB
+		int new_ptr = insertToGHB(prev_GHB_ptr, addr);
+		if ( new_ptr == -1)
+			{
+				deletefromGHB();
+				new_ptr = insertToGHB(prev_GHB_ptr, addr);
+			}
 
-		new_GHB_ptr = insert_to_GHB(addr, prev_GHB_ptr);
-		INDEX_TABLE[pc_index] = new_GHB_ptr;
-
+		INDEX_TABLE[pc_index] = new_ptr;
 	    return metadata_in;
 	}
 
